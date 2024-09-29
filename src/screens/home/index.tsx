@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ColorSwatch, Group } from '@mantine/core';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
-import { Eraser, Paintbrush, RotateCcw, Play, History, X } from 'lucide-react';
+import { Eraser, Paintbrush, RotateCcw, Play, History, X, Menu } from 'lucide-react';
 
-const SWATCHES = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFFFFF'];
+const SWATCHES = ['#FFFFFF','#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
+
 
 interface GeneratedResult {
   expression: string;
@@ -33,6 +34,9 @@ export default function Home() {
   const [isEraser, setIsEraser] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showNavbar, setShowNavbar] = useState(false);
+  const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState(-1);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,13 +50,11 @@ export default function Home() {
       }
     }
 
-    // Load history from localStorage
     const savedHistory = localStorage.getItem('calculatorHistory');
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
     }
 
-    // MathJax setup
     const script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.9/MathJax.js?config=TeX-MML-AM_CHTML';
     script.async = true;
@@ -81,12 +83,19 @@ export default function Home() {
     }
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     const canvas = canvasRef.current;
     if (canvas) {
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      let x, y;
+      if ('touches' in e) {
+        x = e.touches[0].clientX - rect.left;
+        y = e.touches[0].clientY - rect.top;
+      } else {
+        x = e.clientX - rect.left;
+        y = e.clientY - rect.top;
+      }
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.beginPath();
@@ -96,13 +105,20 @@ export default function Home() {
     }
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     if (!isDrawing) return;
     const canvas = canvasRef.current;
     if (canvas) {
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      let x, y;
+      if ('touches' in e) {
+        x = e.touches[0].clientX - rect.left;
+        y = e.touches[0].clientY - rect.top;
+      } else {
+        x = e.clientX - rect.left;
+        y = e.clientY - rect.top;
+      }
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.lineWidth = brushSize;
@@ -126,6 +142,12 @@ export default function Home() {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.beginPath();
+
+        //undo redo feature
+        const newState = canvas.toDataURL();
+        const historySlice = canvasHistory.slice(0, currentStep + 1);
+        setCanvasHistory([...historySlice, newState]);
+        setCurrentStep(currentStep + 1);
       }
     }
   };
@@ -136,10 +158,51 @@ export default function Home() {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        //undo redo feature
+        const blankState = canvas.toDataURL();
+        setCanvasHistory([blankState]);
+        setCurrentStep(0);
       }
     }
     setResults([]);
     setDictOfVars({});
+  };
+
+  const undo = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const img = new Image();
+          img.src = canvasHistory[currentStep - 1];
+          img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          };
+        }
+      }
+    }
+  };
+
+  const redo = () => {
+    if (currentStep < canvasHistory.length - 1) {
+      setCurrentStep(currentStep + 1);
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const img = new Image();
+          img.src = canvasHistory[currentStep + 1];
+          img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          };
+        }
+      }
+    }
   };
 
   const runRoute = async () => {
@@ -171,12 +234,11 @@ export default function Home() {
       });
       setResults(newResults);
 
-      // Add to history
       const newHistoryItem: HistoryItem = {
         results: newResults,
         timestamp: Date.now()
       };
-      const updatedHistory = [newHistoryItem, ...history].slice(0, 10); // Keep only the last 10 items
+      const updatedHistory = [newHistoryItem, ...history].slice(0, 10);
       setHistory(updatedHistory);
       localStorage.setItem('calculatorHistory', JSON.stringify(updatedHistory));
     }
@@ -186,10 +248,23 @@ export default function Home() {
     setShowHistory(!showHistory);
   };
 
+  const toggleNavbar = () => {
+    setShowNavbar(!showNavbar);
+  };
+
   return (
-    <div className="h-screen bg-black p-4">
-      <div className="bg-current rounded-lg shadow-md p-4 mb-4">
-        <div className="grid grid-cols-6 gap-4">
+    <div className="h-screen bg-black flex flex-col">
+      <nav className="bg-black p-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-white text-xl font-bold">Mad Coder's Drawing Calc</h1>
+          <Button onClick={toggleNavbar} className="md:hidden">
+            <Menu size={24} color="white" />
+          </Button>
+        </div>
+      </nav>
+
+      <div className={`bg-black p-4 ${showNavbar ? 'block' : 'hidden'} md:block`}>
+        <div className="flex flex-wrap gap-4 justify-center md:justify-start">
           <Button
             onClick={resetCanvas}
             className="flex items-center justify-center text-white bg-red-500 hover:bg-red-600"
@@ -197,6 +272,26 @@ export default function Home() {
           >
             <RotateCcw className="mr-2" size={16} />
             Reset
+          </Button>
+
+          <Button
+            onClick={undo}
+            className="flex items-center justify-center text-white bg-blue-500 hover:bg-blue-600"
+            variant="default"
+            disabled={currentStep === 0}
+          >
+            {/* <Undo className="mr-2" size={16} /> */}
+            Undo
+          </Button>
+
+          <Button
+            onClick={redo}
+            className="flex items-center justify-center text-white bg-blue-500 hover:bg-blue-600"
+            variant="default"
+            disabled={currentStep === canvasHistory.length - 1}
+          >
+            {/* <Redo className="mr-2" size={16} /> */}
+            Redo
           </Button>
 
           <div className="flex items-center bg-gray-200 rounded-md px-3 py-2">
@@ -264,19 +359,22 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="relative">
+      <div className="flex-grow relative">
         <canvas
           ref={canvasRef}
           id="canvas"
-          className="w-full h-[calc(100vh-8rem)] bg-black rounded-lg shadow-md"
+          className="w-full h-full bg-black"
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
           onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
         />
 
         {results.length > 0 && (
-          <div className="absolute top-4 right-4 bg-white bg-opacity-75 p-2 rounded shadow-md">
+          <div className="absolute top-4 right-4 bg-white bg-opacity-75 p-2 rounded shadow-md max-w-full overflow-x-auto">
             <div id="mathResults">
               {results.map((result, index) => (
                 <div key={index}>
@@ -288,7 +386,7 @@ export default function Home() {
         )}
 
         <div 
-          className={`fixed top-0 right-0 h-full w-80 bg-white bg-opacity-90 p-4 shadow-lg transition-transform duration-300 ease-in-out ${
+          className={`fixed top-0 right-0 h-full w-full md:w-80 bg-white bg-opacity-90 p-4 shadow-lg transition-transform duration-300 ease-in-out ${
             showHistory ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
