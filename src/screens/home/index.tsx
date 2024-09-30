@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { Eraser, Paintbrush, RotateCcw, Play, History, X, Menu } from 'lucide-react';
 
-const SWATCHES = ['#FFFFFF','#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
-
+const SWATCHES = ['#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
 
 interface GeneratedResult {
   expression: string;
@@ -38,6 +37,11 @@ export default function Home() {
   const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState(-1);
 
+  // Function to prevent default scrolling
+  const preventDefault = (e: TouchEvent) => {
+    e.preventDefault();
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
@@ -61,12 +65,20 @@ export default function Home() {
     document.head.appendChild(script);
 
     script.onload = () => {
-      window.MathJax.Hub.Config({
-        tex2jax: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
-      });
+      if (window.MathJax) {
+        window.MathJax.Hub.Config({
+          tex2jax: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+        });
+        window.MathJax.Hub.Queue(['Typeset', window.MathJax.Hub]);
+      }
     };
 
+    // Add event listener to prevent default scrolling on mobile
+    document.body.addEventListener('touchmove', preventDefault, { passive: false });
+
+    // Clean up event listener and script
     return () => {
+      document.body.removeEventListener('touchmove', preventDefault);
       document.head.removeChild(script);
     };
   }, [brushSize]);
@@ -83,7 +95,9 @@ export default function Home() {
     }
   };
 
-  const startDrawing = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (
+    e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>
+  ) => {
     e.preventDefault();
     const canvas = canvasRef.current;
     if (canvas) {
@@ -105,7 +119,9 @@ export default function Home() {
     }
   };
 
-  const draw = (e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (
+    e: React.TouchEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>
+  ) => {
     e.preventDefault();
     if (!isDrawing) return;
     const canvas = canvasRef.current;
@@ -143,7 +159,7 @@ export default function Home() {
       if (ctx) {
         ctx.beginPath();
 
-        //undo redo feature
+        // Undo redo feature
         const newState = canvas.toDataURL();
         const historySlice = canvasHistory.slice(0, currentStep + 1);
         setCanvasHistory([...historySlice, newState]);
@@ -159,7 +175,7 @@ export default function Home() {
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        //undo redo feature
+        // Undo redo feature
         const blankState = canvas.toDataURL();
         setCanvasHistory([blankState]);
         setCurrentStep(0);
@@ -208,39 +224,40 @@ export default function Home() {
   const runRoute = async () => {
     const canvas = canvasRef.current;
     if (canvas) {
-      const response = await axios({
-        method: 'post',
-        url: `${import.meta.env.VITE_API_URL}/calculate/`,
-        data: {
+      try {
+        const response = await axios.post(`${import.meta.env.VITE_API_URL}/calculate/`, {
           image: canvas.toDataURL('image/png'),
-          dict_of_vars: dictOfVars
-        }
-      });
-
-      const resp = await response.data;
-      console.log('Response', resp);
-      const newResults: GeneratedResult[] = [];
-      resp.data.forEach((data: Response) => {
-        if (data.assign === true) {
-          setDictOfVars(prevDict => ({
-            ...prevDict,
-            [data.expr]: Number(data.result)
-          }));
-        }
-        newResults.push({
-          expression: data.expr,
-          answer: String(data.result)
+          dict_of_vars: dictOfVars,
         });
-      });
-      setResults(newResults);
 
-      const newHistoryItem: HistoryItem = {
-        results: newResults,
-        timestamp: Date.now()
-      };
-      const updatedHistory = [newHistoryItem, ...history].slice(0, 10);
-      setHistory(updatedHistory);
-      localStorage.setItem('calculatorHistory', JSON.stringify(updatedHistory));
+        const resp = response.data;
+        console.log('Response', resp);
+        const newResults: GeneratedResult[] = [];
+        resp.data.forEach((data: Response) => {
+          if (data.assign === true) {
+            setDictOfVars((prevDict) => ({
+              ...prevDict,
+              [data.expr]: Number(data.result),
+            }));
+          }
+          newResults.push({
+            expression: data.expr,
+            answer: String(data.result),
+          });
+        });
+        setResults(newResults);
+
+        const newHistoryItem: HistoryItem = {
+          results: newResults,
+          timestamp: Date.now(),
+        };
+        const updatedHistory = [newHistoryItem, ...history].slice(0, 10);
+        setHistory(updatedHistory);
+        localStorage.setItem('calculatorHistory', JSON.stringify(updatedHistory));
+      } catch (error) {
+        console.error('Error running calculation:', error);
+        // You might want to handle the error more gracefully here
+      }
     }
   };
 
@@ -253,7 +270,7 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen bg-black flex flex-col">
+    <div className="h-screen bg-black flex flex-col overflow-hidden touch-none">
       <nav className="bg-black p-4">
         <div className="flex justify-between items-center">
           <h1 className="text-white text-xl font-bold">Mad Coder's Drawing Calc</h1>
@@ -320,8 +337,12 @@ export default function Home() {
                 }}
                 style={{
                   cursor: 'pointer',
-                  border: selectedColor === swatch && !isEraser ? '2px solid white' : '1px solid gray',
-                  transform: selectedColor === swatch && !isEraser ? 'scale(1.2)' : 'scale(1)',
+                  border:
+                    selectedColor === swatch && !isEraser
+                      ? '2px solid white'
+                      : '1px solid gray',
+                  transform:
+                    selectedColor === swatch && !isEraser ? 'scale(1.2)' : 'scale(1)',
                   transition: 'all 0.2s ease-in-out',
                 }}
               />
@@ -385,7 +406,7 @@ export default function Home() {
           </div>
         )}
 
-        <div 
+        <div
           className={`fixed top-0 right-0 h-full w-full md:w-80 bg-white bg-opacity-90 p-4 shadow-lg transition-transform duration-300 ease-in-out ${
             showHistory ? 'translate-x-0' : 'translate-x-full'
           }`}
@@ -406,10 +427,10 @@ export default function Home() {
                 <p className="text-sm text-gray-500">
                   {new Date(item.timestamp).toLocaleString()}
                 </p>
-                {item.results.map((result, index) => (
-                 <div key={index}>
-                 {`\\(\\normalsize{${result.expression} = ${result.answer}}\\)`}
-               </div>
+                {item.results.map((result, idx) => (
+                  <div key={idx}>
+                    {`\\(\\normalsize{${result.expression} = ${result.answer}}\\)`}
+                  </div>
                 ))}
               </div>
             ))}
